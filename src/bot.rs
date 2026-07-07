@@ -1,8 +1,10 @@
 use anyhow::Result;
 use azalea::{app::PluginGroup, prelude::*};
+use flint_core::test_spec::BlockFace;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 // Constants for connection and timing
 const INIT_WAIT_ATTEMPTS: u32 = 50;
@@ -11,6 +13,7 @@ const GAME_STATE_WAIT_ATTEMPTS: u32 = 100;
 const WORLD_SYNC_DELAY_MS: u64 = 500;
 const DEFAULT_CHUNK_LOAD_DELAY_MS: u64 = 0;
 const TELEPORT_NEAR_THRESHOLD: i32 = 32;
+const INTERACT_WAIT_DELAY_MS: u64 = 50;
 
 type ChatReceiver = std::sync::mpsc::Receiver<(Option<String>, String)>;
 
@@ -206,6 +209,85 @@ impl TestBot {
         Ok(())
     }
 
+    pub fn set_direction(&self, x_rot: f32, y_rot: f32) -> Result<()> {
+        let client_guard = self.get_client()?;
+        let client = client_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Bot not initialized"))?;
+
+        tracing::debug!("Setting direction: {} {}", x_rot, y_rot);
+
+        client.set_direction(x_rot, y_rot)?;
+        Ok(())
+    }
+
+    pub fn block_interact(&self, pos: [i32; 3]) -> Result<()> {
+        let client_guard = self.get_client()?;
+        let client = client_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Bot not initialized"))?;
+
+        let block_pos = azalea::BlockPos::from(<(i32, i32, i32)>::from(pos));
+
+        tracing::debug!("Interacting with block: {}", block_pos);
+        client.block_interact(block_pos);
+
+        Ok(())
+    }
+
+    pub fn prepare_for_interact_face(&self, pos: [i32; 3], block_face: BlockFace) -> Result<()> {
+        // Move 2 blocks away to allow placing blocks with this and -1 on y, so that the head is
+        // aligned with the block and not the legs.
+        let tp_offset = match block_face {
+            BlockFace::Top => [0, 2, 0],
+            BlockFace::Bottom => [0, -3, 0],
+            BlockFace::North => [0, -1, -2],
+            BlockFace::South => [0, -1, 2],
+            BlockFace::East => [2, -1, 0],
+            BlockFace::West => [-2, -1, 0],
+        };
+        let tp_pos = [
+            pos[0] + tp_offset[0],
+            pos[1] + tp_offset[1],
+            pos[2] + tp_offset[2],
+        ];
+
+        let (x_rot, y_rot) = match block_face {
+            BlockFace::Top => (0.0, 90.0),
+            BlockFace::Bottom => (0.0, -90.0),
+            BlockFace::North => (0.0, 0.0),
+            BlockFace::South => (180.0, 0.0),
+            BlockFace::East => (90.0, 0.0),
+            BlockFace::West => (-90.0, 0.0),
+        };
+
+        self.teleport(tp_pos, false)?;
+
+        self.set_direction(x_rot, y_rot)?;
+
+        std::thread::sleep(Duration::from_millis(INTERACT_WAIT_DELAY_MS));
+
+        Ok(())
+    }
+
+    pub fn teleport(&self, pos: [i32; 3], instant: bool) -> Result<()> {
+        self.send_command(&format!(
+            "tp flintmc_testbot {} {} {}",
+            pos[0], pos[1], pos[2]
+        ))?;
+
+        if instant {
+            return Ok(());
+        }
+
+        let delay = self.chunk_load_delay_ms.load(Ordering::Relaxed);
+        if delay > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+        }
+
+        Ok(())
+    }
+
     /// Teleport the bot near `pos` so the client loads chunks and the server simulates blocks.
     /// When `force` is false, skips the teleport if already within `TELEPORT_NEAR_THRESHOLD`.
     pub fn ensure_near(&self, pos: [i32; 3]) -> Result<()> {
@@ -236,14 +318,8 @@ impl TestBot {
 
         if need_tp {
             let tp_y = pos[1].clamp(-60, 320);
-            self.send_command(&format!(
-                "tp flintmc_testbot {} {} {}",
-                pos[0], tp_y, pos[2]
-            ))?;
-            let delay = self.chunk_load_delay_ms.load(Ordering::Relaxed);
-            if delay > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(delay));
-            }
+            self.teleport([pos[0], tp_y, pos[2]], false)?;
+
             *self.last_near.lock() = Some(pos);
         }
 
