@@ -1,5 +1,5 @@
 use anyhow::Result;
-use azalea::prelude::*;
+use azalea::{app::PluginGroup, prelude::*};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -121,7 +121,13 @@ impl TestBot {
                     Ok(())
                 }
 
-                let result = ClientBuilder::new()
+                let result = ClientBuilder::new_without_plugins()
+                    .add_plugins(
+                        azalea::DefaultPlugins
+                            .build()
+                            .disable::<azalea::physics::PhysicsPlugin>(),
+                    )
+                    .add_plugins(azalea::bot::DefaultBotPlugins)
                     .set_handler(handler)
                     .set_state(state)
                     .start(account, server_owned.as_str())
