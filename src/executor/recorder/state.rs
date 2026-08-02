@@ -99,13 +99,18 @@ impl RecorderState {
 
     /// Get or create the timeline step for the current tick
     fn get_or_create_current_step(&mut self) -> &mut TimelineStep {
-        if self.timeline.is_empty() || self.timeline.last().unwrap().tick != self.current_tick {
+        if self
+            .timeline
+            .last()
+            .is_none_or(|step| step.tick != self.current_tick)
+        {
             self.timeline.push(TimelineStep {
                 tick: self.current_tick,
                 actions: Vec::new(),
             });
         }
-        self.timeline.last_mut().unwrap()
+        let current_step = self.timeline.len() - 1;
+        &mut self.timeline[current_step]
     }
 
     /// Remove any existing Place/Remove actions for this position in the current tick

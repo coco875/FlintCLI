@@ -15,6 +15,12 @@ const GAME_STATE_WAIT_ATTEMPTS: u32 = 100;
 const STATE_SYNC_TIMEOUT_MS: u64 = 2_000;
 const CHUNK_SYNC_TIMEOUT_MS: u64 = 10_000;
 const STATE_SYNC_POLL_MS: u64 = 5;
+const WORLD_READY_TIMEOUT_SECS: u64 = 5;
+const POSITION_TOLERANCE: f64 = 0.01;
+const TELEPORT_VERTICAL_TOLERANCE: f64 = 0.75;
+const TEST_ORIGIN_CENTER: f64 = 0.5;
+const TEST_ORIGIN_HEIGHT: f64 = 64.0;
+const MAX_HOTBAR_SLOT: u8 = 9;
 // Must be configured during Event::Init, before Azalea allocates PartialWorld.
 // Vanilla servers support at most 32 chunks and may clamp this request lower.
 const CLIENT_VIEW_DISTANCE: u8 = 32;
@@ -280,7 +286,7 @@ impl TestBot {
         tracing::info!("Connected successfully and in game state");
 
         world_ready_rx
-            .recv_timeout(std::time::Duration::from_secs(5))
+            .recv_timeout(std::time::Duration::from_secs(WORLD_READY_TIMEOUT_SECS))
             .map_err(|_| anyhow::anyhow!("Bot world did not spawn within timeout"))?;
         self.reset_to_test_origin()?;
 
@@ -304,7 +310,8 @@ impl TestBot {
                 .world_name()
                 .is_ok_and(|world| world.to_string() == "minecraft:overworld");
             let at_origin = client.position().is_ok_and(|position| {
-                (position.x - 0.5).abs() < 0.01 && (position.z - 0.5).abs() < 0.01
+                (position.x - TEST_ORIGIN_CENTER).abs() < POSITION_TOLERANCE
+                    && (position.z - TEST_ORIGIN_CENTER).abs() < POSITION_TOLERANCE
             });
             in_overworld && at_origin
         })
@@ -477,9 +484,9 @@ impl TestBot {
                 .world_name()
                 .is_ok_and(|world| world.to_string() == "minecraft:overworld")
                 && client.position().is_ok_and(|actual| {
-                    (actual.x - pos[0]).abs() < 0.01
-                        && (actual.y - pos[1]).abs() < 0.75
-                        && (actual.z - pos[2]).abs() < 0.01
+                    (actual.x - pos[0]).abs() < POSITION_TOLERANCE
+                        && (actual.y - pos[1]).abs() < TELEPORT_VERTICAL_TOLERANCE
+                        && (actual.z - pos[2]).abs() < POSITION_TOLERANCE
                 })
         })?;
         let _ = updates.blocking_recv();
@@ -517,7 +524,7 @@ impl TestBot {
     }
 
     pub fn select_hotbar(&self, slot: u8) -> Result<()> {
-        if !(1..=9).contains(&slot) {
+        if !(1..=MAX_HOTBAR_SLOT).contains(&slot) {
             anyhow::bail!("hotbar slot must be in the range 1..=9");
         }
         let client = {
@@ -601,7 +608,10 @@ impl TestBot {
                 self.teleport(pos, rotation)?;
             }
             None if active.position.is_some() || active.owner != Some(owner) => {
-                self.teleport([0.5, 64.0, 0.5], Some([0.0, 0.0]))?;
+                self.teleport(
+                    [TEST_ORIGIN_CENTER, TEST_ORIGIN_HEIGHT, TEST_ORIGIN_CENTER],
+                    Some([0.0, 0.0]),
+                )?;
             }
             _ => {}
         }
@@ -715,7 +725,7 @@ impl TestBot {
         operation: &str,
         predicate: impl FnMut() -> bool,
     ) -> Result<()> {
-        self.wait_until_timeout(
+        Self::wait_until_timeout(
             operation,
             std::time::Duration::from_millis(STATE_SYNC_TIMEOUT_MS),
             predicate,
@@ -723,7 +733,7 @@ impl TestBot {
     }
 
     pub(crate) fn wait_for_block_chunk(&self, pos: [i32; 3]) -> Result<()> {
-        self.wait_until_timeout(
+        Self::wait_until_timeout(
             "target block chunk availability",
             std::time::Duration::from_millis(CHUNK_SYNC_TIMEOUT_MS),
             || self.get_block(pos).is_ok_and(|block| block.is_some()),
@@ -731,7 +741,6 @@ impl TestBot {
     }
 
     fn wait_until_timeout(
-        &self,
         operation: &str,
         timeout: std::time::Duration,
         mut predicate: impl FnMut() -> bool,

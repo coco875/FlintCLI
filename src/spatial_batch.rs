@@ -3,6 +3,9 @@
 use flint_core::spatial::calculate_test_offsets_for_batch_default;
 use flint_core::test_spec::TestSpec;
 
+const CHUNK_WIDTH: i32 = 16;
+const SIMULATION_MARGIN_CHUNKS: u32 = 2;
+
 /// Partition tests by their resolved world configuration while preserving the order in
 /// which each configuration and test first appeared.
 pub fn group_tests_by_world_config(tests: Vec<TestSpec>) -> Vec<Vec<TestSpec>> {
@@ -23,7 +26,7 @@ pub fn group_tests_by_world_config(tests: Vec<TestSpec>) -> Vec<Vec<TestSpec>> {
 /// Blocks from world origin (0, 0) that can still be simulated when the bot stands at
 /// the layout center. Reserves two chunks of margin for the player and chunk edges.
 pub fn simulation_radius_blocks(simulation_distance: u32) -> i32 {
-    (simulation_distance.saturating_sub(2) as i32) * 16
+    (simulation_distance.saturating_sub(SIMULATION_MARGIN_CHUNKS) as i32) * CHUNK_WIDTH
 }
 
 /// Maximum Chebyshev distance from origin for any corner of any test region in a batch.
@@ -60,9 +63,9 @@ pub fn split_tests_by_simulation_distance(
         let paired: Vec<(TestSpec, [i32; 3])> = current.iter().cloned().zip(offsets).collect();
 
         if max_extent_from_origin(&paired) > max_radius && current.len() > 1 {
-            let overflow = current.pop().expect("current has at least two tests");
+            let overflow = current.split_off(current.len() - 1);
             batches.push(current);
-            current = vec![overflow];
+            current = overflow;
         }
     }
 

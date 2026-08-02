@@ -6,6 +6,7 @@ mod block;
 mod commands;
 mod events;
 mod handlers;
+mod parsing;
 mod recorder;
 mod tick;
 
@@ -23,6 +24,7 @@ use std::io::Write;
 
 // Timing constants
 const DEFAULT_TESTS_DIR: &str = "FlintBenchmark/tests";
+const CHUNK_WIDTH: i32 = 16;
 
 fn asserted_entity_types(test: &TestSpec) -> BTreeSet<String> {
     test.timeline
@@ -131,7 +133,7 @@ impl TestExecutor {
     }
 
     /// Helper to apply offset to a position
-    fn apply_offset(&self, pos: [i32; 3], offset: [i32; 3]) -> [i32; 3] {
+    fn apply_offset(pos: [i32; 3], offset: [i32; 3]) -> [i32; 3] {
         [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]]
     }
 
@@ -142,12 +144,12 @@ impl TestExecutor {
     ) -> Result<()> {
         for (test, offset) in tests_with_offsets {
             let region = test.cleanup_region();
-            let min = self.apply_offset(region[0], *offset);
-            let max = self.apply_offset(region[1], *offset);
-            let cx0 = min[0].div_euclid(16);
-            let cz0 = min[2].div_euclid(16);
-            let cx1 = max[0].div_euclid(16);
-            let cz1 = max[2].div_euclid(16);
+            let min = Self::apply_offset(region[0], *offset);
+            let max = Self::apply_offset(region[1], *offset);
+            let cx0 = min[0].div_euclid(CHUNK_WIDTH);
+            let cz0 = min[2].div_euclid(CHUNK_WIDTH);
+            let cx1 = max[0].div_euclid(CHUNK_WIDTH);
+            let cz1 = max[2].div_euclid(CHUNK_WIDTH);
             let verb = if add { "add" } else { "remove" };
             let cmd = format!("forceload {verb} {cx0} {cz0} {cx1} {cz1}");
             self.bot.send_command_synced(&cmd)?;
@@ -331,8 +333,8 @@ impl TestExecutor {
 
     fn cleanup_test_area(&self, test: &TestSpec, offset: [i32; 3]) -> Result<()> {
         let region = test.cleanup_region();
-        let min = self.apply_offset(region[0], offset);
-        let max = self.apply_offset(region[1], offset);
+        let min = Self::apply_offset(region[0], offset);
+        let max = Self::apply_offset(region[1], offset);
         self.bot.send_command_synced(&format!(
             "fill {} {} {} {} {} {} air",
             min[0], min[1], min[2], max[0], max[1], max[2]
@@ -365,8 +367,8 @@ impl TestExecutor {
                     current_tick: 0,
                     entities: std::collections::HashMap::new(),
                     entity_bounds: Some([
-                        self.apply_offset(region[0], *offset),
-                        self.apply_offset(region[1], *offset),
+                        Self::apply_offset(region[0], *offset),
+                        Self::apply_offset(region[1], *offset),
                     ]),
                 }
             })
@@ -494,8 +496,8 @@ impl TestExecutor {
         let scan_bounds: Option<([i32; 3], [i32; 3])> = if self.events.is_some() {
             let (test, offset) = &tests_with_offsets[0];
             let region = test.cleanup_region();
-            let world_min = self.apply_offset(region[0], *offset);
-            let world_max = self.apply_offset(region[1], *offset);
+            let world_min = Self::apply_offset(region[0], *offset);
+            let world_max = Self::apply_offset(region[1], *offset);
             if let Some(events) = self.events.as_mut() {
                 events.run_started(&test.name, [world_min, world_max])?;
             }
@@ -803,7 +805,7 @@ impl TestExecutor {
     }
 
     fn execute_action(
-        &mut self,
+        &self,
         world: &mut MinecraftWorld,
         player: &mut Option<Box<dyn FlintPlayer>>,
         tick: u32,

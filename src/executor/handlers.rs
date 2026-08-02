@@ -6,7 +6,9 @@ use flint_core::spatial::pair_tests_with_offsets;
 use flint_core::test_spec::TestSpec;
 use std::path::PathBuf;
 
-use super::{DEFAULT_TESTS_DIR, TestExecutor, block, commands, recorder, tick};
+use super::{
+    DEFAULT_TESTS_DIR, TestExecutor, block, commands, parsing::numbers_after_colon, recorder, tick,
+};
 use crate::spatial_batch::group_tests_by_world_config;
 
 fn command_action(label: &str, command: &str) -> serde_json::Value {
@@ -726,7 +728,7 @@ impl TestExecutor {
                 .recv_chat_timeout(std::time::Duration::from_millis(tick::CHAT_POLL_TIMEOUT_MS))
             {
                 if message.contains(path) || message.contains("entity data") {
-                    let values = parse_numbers_after_colon(&message);
+                    let values = numbers_after_colon(&message);
                     if !values.is_empty() {
                         return Ok(values);
                     }
@@ -751,25 +753,6 @@ fn validate_entity_target(target: &str) -> Result<()> {
         anyhow::bail!("invalid player/entity target for recording: {target}");
     }
     Ok(())
-}
-
-fn parse_numbers_after_colon(message: &str) -> Vec<f64> {
-    let value_part = message
-        .split_once(':')
-        .map(|(_, value)| value)
-        .unwrap_or(message);
-    value_part
-        .split(|c: char| {
-            !(c.is_ascii_digit() || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E')
-        })
-        .filter_map(|part| {
-            if part.is_empty() || part == "-" || part == "+" || part == "." {
-                None
-            } else {
-                part.parse::<f64>().ok()
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]
