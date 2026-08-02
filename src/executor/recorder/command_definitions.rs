@@ -142,8 +142,7 @@ fn sprint(executor: &mut TestExecutor, context: &mut FlintCommandContext<'_>) ->
             .bot
             .send_command("say Sprint ticks must be greater than 0")?;
         return Ok(());
-    }
-    if executor.last_assert_pos.is_empty() {
+    } else if executor.last_assert_pos.is_empty() {
         executor
             .bot
             .send_command("say Please assert a position first, which should be used for each sprint")?;
